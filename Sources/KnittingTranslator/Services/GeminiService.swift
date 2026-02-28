@@ -6,6 +6,11 @@ import PDFKit
 struct TranslationPair: Decodable {
     let original: String
     let translation: String
+    var pageIndex: Int = 0  // JSONデコード対象外・translatePage() で注入
+
+    private enum CodingKeys: String, CodingKey {
+        case original, translation
+    }
 }
 
 enum GeminiError: LocalizedError {
@@ -33,7 +38,7 @@ actor GeminiService {
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest  = 120
+        config.timeoutIntervalForRequest  = 300
         config.timeoutIntervalForResource = 1800
         return URLSession(configuration: config)
     }()
@@ -111,7 +116,9 @@ actor GeminiService {
             throw GeminiError.apiError(statusCode: http.statusCode, body: bodyText)
         }
 
-        return try parseResponse(data: data)
+        var pairs = try parseResponse(data: data)
+        for i in pairs.indices { pairs[i].pageIndex = pageNumber - 1 }
+        return pairs
     }
 
     private func buildRequestBody(
@@ -166,6 +173,13 @@ actor GeminiService {
                             "text": prompt
                         ]
                     ]
+                ]
+            ],
+            // Gemini 2.5 Flash はデフォルトで thinking モードが有効。
+            // 翻訳タスクでは不要かつ大幅な遅延の原因になるため無効化する。
+            "generationConfig": [
+                "thinkingConfig": [
+                    "thinkingBudget": 0
                 ]
             ]
         ]

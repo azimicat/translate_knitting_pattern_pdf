@@ -13,7 +13,8 @@ Google AI (Gemini 2.5 Flash) を使い、テキスト抽出と翻訳を 1 回の
 - ページ単位で Gemini に PDF を送信し、テキスト抽出と英→日翻訳を一括実行
 - **パターン部分**（編み方指示）は 1 文ずつ、**パターン以外**（説明文・材料・注意書き）は段落ブロックごとに翻訳をペアにして出力
 - 原文の**太字・斜体**フォントを出力 PDF にも反映
-- 原文の画像を出力 PDF の末尾に保持（「画像を無視」オプションで省略可）
+- **左列に英語原文・右列に日本語翻訳**の 2 カラム形式で出力
+- 原文の画像を**同ページのテキスト直後**にインライン配置（「画像を無視」オプションで省略可）
 - 翻訳結果をアプリ内でプレビューし、任意の場所に PDF 保存
 
 ---
@@ -25,12 +26,21 @@ Google AI (Gemini 2.5 Flash) を使い、テキスト抽出と翻訳を 1 回の
 | OS | macOS 14 Sonoma 以降 |
 | Xcode / Swift | Swift 5.10 以降（Xcode 15 以降推奨） |
 | API | Google AI API キー（無料） |
+| CLI ツール | [typst](https://typst.app/) — PDF 生成エンジン |
 
 ---
 
 ## セットアップ
 
-### 1. Google AI API キーを取得する
+### 1. typst をインストールする
+
+PDF 生成に [Typst](https://typst.app/) の CLI を使用します。
+
+```sh
+brew install typst
+```
+
+### 2. Google AI API キーを取得する
 
 1. [Google AI Studio](https://aistudio.google.com/app/apikey) にアクセス
 2. **「Create API key」** をクリックしてキーを生成
@@ -38,7 +48,7 @@ Google AI (Gemini 2.5 Flash) を使い、テキスト抽出と翻訳を 1 回の
 
 > 無料枠：15 RPM / 1,500 リクエスト/日 / 1,000,000 TPM（2025 年時点）
 
-### 2. `.env` ファイルを作成する
+### 3. `.env` ファイルを作成する
 
 プロジェクトのルートディレクトリに `.env` ファイルを作成し、取得したキーを記入します。
 
@@ -55,7 +65,7 @@ GOOGLE_AI_API_KEY=AIzaSy...（取得したキーを貼り付け）
 
 > `.env` は `.gitignore` に含まれており、リポジトリには含まれません。
 
-### 3. ビルドして起動する
+### 4. ビルドして起動する
 
 **Swift Package Manager（ターミナル）の場合：**
 
@@ -68,11 +78,10 @@ swift run
 
 1. `Package.swift` を Xcode で開く
 2. ターゲット `KnittingTranslator` を選択
-3. **Signing & Capabilities** タブで **App Sandbox** を有効化し、`KnittingTranslator.entitlements` を割り当てる
-4. 以下の権限が有効になっていることを確認：
-   - **Outgoing Connections (Client)** — API 通信に必要
-   - **User Selected File (Read/Write)** — PDF の読み込み・保存に必要
-5. ⌘R でビルド＆実行
+3. **Signing & Capabilities** タブで `KnittingTranslator.entitlements` を割り当てる
+4. ⌘R でビルド＆実行
+
+> **App Sandbox は無効**です（Typst CLI を呼び出すために必要）。ネットワーク通信とファイルアクセスはエンタイトルメントで明示的に許可されています。
 
 ---
 
@@ -95,15 +104,21 @@ swift run
 
 ### レイアウト
 
-各翻訳ペアは以下の形式で出力されます。
+各ページの翻訳ペアは **2 カラムのテーブル形式** で出力されます。
 
 ```
-【原文】
-This is a knitting pattern worked in the round.
-
-【翻訳】
-これは輪編みで編むニットパターンです。
+┌──────────────────────┬──────────────────────┐
+│ Original             │ 翻訳                  │
+├──────────────────────┼──────────────────────┤
+│ Row 1: K2, P2, *K4, │ 1段目：表2目、裏2目、  │
+│ rep from * to end.   │ *表4目を繰り返す。     │
+├──────────────────────┼──────────────────────┤
+│ Materials: 200g of   │ 材料：並太毛糸200g、   │
+│ worsted weight yarn. │ 5mm棒針1組。           │
+└──────────────────────┴──────────────────────┘
 ```
+
+同ページで抽出した画像は、そのページのテキスト直後に 2 列グリッドでインライン配置されます。
 
 ### グループ化の仕様
 
@@ -114,14 +129,7 @@ This is a knitting pattern worked in the round.
 
 ### フォントスタイル
 
-原文 PDF の**太字**・*斜体*は出力 PDF にも反映されます。
-
-- 英語原文：Helvetica（通常）/ Helvetica-Bold（太字）/ Helvetica-Oblique（斜体）
-- 日本語翻訳：Hiragino Sans W3（通常）/ W6（太字）/ 合成斜体（斜体）
-
-### 画像
-
-「画像を無視」がオフの場合、原文 PDF から抽出した画像を出力 PDF 末尾に 2 列 × 3 行のグリッドで掲載します。
+原文 PDF の**太字**・*斜体*は出力 PDF にも反映されます（`<b>` / `<i>` タグ経由で Typst の `#strong` / `#emph` に変換）。
 
 ---
 
@@ -132,7 +140,7 @@ translate_knitting_pattern_pdf/
 ├── Package.swift
 ├── .env.example                           ← API キー設定のテンプレート
 ├── .env                                   ← 実際の API キー（要作成、git 管理外）
-├── KnittingTranslator.entitlements        ← App Sandbox 権限設定
+├── KnittingTranslator.entitlements        ← ネットワーク・ファイルアクセス権限（Sandbox 無効）
 └── Sources/KnittingTranslator/
     ├── KnittingTranslatorApp.swift        ← @main App エントリポイント
     ├── Views/
@@ -146,7 +154,7 @@ translate_knitting_pattern_pdf/
         ├── EnvLoader.swift                ← .env パーサー
         ├── GeminiService.swift            ← Gemini API クライアント（テキスト抽出＋翻訳）
         ├── ImageExtractor.swift           ← CGPDFScanner による画像抽出
-        └── PDFGenerator.swift             ← CoreText によるバイリンガル PDF 生成
+        └── TypstGenerator.swift           ← Typst CLI を使ったバイリンガル PDF 生成
 ```
 
 ---
@@ -167,25 +175,36 @@ PDF ファイル（英語）
   │
   ├─ [80% → 90%] ImageExtractor（「画像を無視」がオフの場合）
   │    CGPDFScanner + C コールバックで XObject 画像を抽出
-  │    ヘッダー・フッター領域（上下 10%）および 80px 以下の小画像は除外
+  │    ヘッダー・フッター領域（上下 10%）および小画像は除外
   │
-  └─ [90% → 100%] PDFGenerator
-       CoreText CTFramesetter でテキストを A4 ページに自動改ページ
-       <b> / <i> タグを NSFontManager でフォントバリアントに変換
-       画像は 2×3 グリッドで末尾ページに配置
+  └─ [90% → 100%] TypstGenerator
+       TranslationPair と ExtractedImage を .typ ソースに変換
+       typst compile コマンドで A4 PDF を生成
+       2 カラムテーブル（左=原文 / 右=翻訳）、画像は同ページ直後に 2 列グリッド
 
-  → バイリンガル PDF（日本語）
+  → バイリンガル PDF（2 カラム形式）
 ```
 
-### API
+### Gemini API
 
 | 項目 | 値 |
 |------|-----|
 | モデル | `gemini-2.5-flash` |
 | エンドポイント | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` |
-| タイムアウト（リクエスト） | 120 秒 |
+| タイムアウト（リクエスト） | 300 秒 |
 | タイムアウト（リソース） | 1800 秒 |
 | PDF 送信形式 | `inline_data` / `application/pdf` / base64 |
+| Thinking モード | 無効（`thinkingBudget: 0`）|
+
+### Typst PDF 生成
+
+| 項目 | 値 |
+|------|-----|
+| CLIバージョン | 0.14 以降推奨 |
+| インストール | `brew install typst` |
+| 用紙サイズ | A4（210 × 297mm） |
+| マージン | 上下 15mm / 左右 12mm |
+| フォント | Helvetica Neue（原文）/ Hiragino Sans（翻訳） |
 
 ---
 
@@ -193,4 +212,4 @@ PDF ファイル（英語）
 
 - スキャン画像のみで構成された PDF（テキストレイヤーなし）は翻訳できません
 - 1 回の翻訳でページ数分の API リクエストが発生します。無料枠（1,500 リクエスト/日）を超える場合はご注意ください
-- 日本語フォントに真のイタリック体がないため、斜体は合成斜体で近似します
+- `typst` がインストールされていない場合、PDF 生成時にエラーになります（`brew install typst` でインストール）

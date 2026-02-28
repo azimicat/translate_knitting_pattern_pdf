@@ -58,9 +58,6 @@ final class AppState {
                 }
                 progress = 0.80
 
-                let originals   = pairs.map(\.original)
-                let translated  = pairs.map(\.translation)
-
                 // 3. 画像抽出（0.80→0.90）
                 progressLabel = "画像を抽出中..."
                 let images: [ExtractedImage] = ignoreImages ? [] :
@@ -71,19 +68,16 @@ final class AppState {
                 progressLabel = "PDFを生成中..."
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString + ".pdf")
-                try await PDFGenerator().generate(
-                    originals: originals,
-                    translated: translated,
-                    images: images,
-                    to: tempURL
-                )
+                try await TypstGenerator().generate(pairs: pairs, images: images, to: tempURL)
 
                 generatedDocument = PDFDocument(url: tempURL)
                 progress = 1.0
                 progressLabel = "完了"
 
             } catch {
-                errorMessage = error.localizedDescription
+                if !(error is CancellationError) {
+                    errorMessage = error.localizedDescription
+                }
             }
             isProcessing = false
         }

@@ -126,13 +126,16 @@ func pdfOp_Do(_ scanner: CGPDFScannerRef, _ info: UnsafeMutableRawPointer?) {
     guard let cgImage else { return }
 
     // Image bounds on page: CTM transforms unit square [0,1]×[0,1]
+    // standardized で負の height（flip transform 由来）を正規化する
     let imgBoundsOnPage = CGRect(x: 0, y: 0, width: 1, height: 1)
         .applying(ctx.pointee.currentCTM)
+        .standardized
 
-    // Filter header (top 10%) and footer (bottom 10%) regions
+    // 画像全体がヘッダーゾーン（上位10%）またはフッターゾーン（下位10%）に
+    // 完全に収まる場合のみ除外する。
     // PDF coords: y=0 = bottom, y=pageHeight = top
     let pH = ctx.pointee.pageHeight
-    if imgBoundsOnPage.maxY > pH * 0.90 || imgBoundsOnPage.minY < pH * 0.10 { return }
+    if imgBoundsOnPage.minY > pH * 0.90 || imgBoundsOnPage.maxY < pH * 0.10 { return }
 
     ctx.pointee.images.append(ExtractedImage(
         image: cgImage,
