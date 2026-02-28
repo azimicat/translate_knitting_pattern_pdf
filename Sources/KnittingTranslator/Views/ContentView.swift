@@ -17,15 +17,12 @@ struct ContentView: View {
                 )
 
                 GroupBox("翻訳設定") {
-                    VStack(alignment: .leading) {
-                        Picker("翻訳モード", selection: $appState.mode) {
-                            ForEach(TranslationMode.allCases) {
-                                Text($0.rawValue).tag($0)
-                            }
+                    Picker("翻訳モード", selection: $appState.mode) {
+                        ForEach(TranslationMode.allCases) {
+                            Text($0.rawValue).tag($0)
                         }
-                        .pickerStyle(.radioGroup)
-                        Toggle("画像を無視", isOn: $appState.ignoreImages)
                     }
+                    .pickerStyle(.radioGroup)
                 }
 
                 HStack {

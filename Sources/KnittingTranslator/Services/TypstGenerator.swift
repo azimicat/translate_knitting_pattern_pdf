@@ -24,25 +24,17 @@ actor TypstGenerator {
 
     // MARK: - Public
 
-    func generate(pairs: [TranslationPair], images: [ExtractedImage], to outputURL: URL) async throws {
+    func generate(pairs: [TranslationPair], to outputURL: URL) async throws {
         let typstPath = try findTypst()
 
-        // 一時ディレクトリを作成（.typ ファイルと画像を同梱）
+        // 一時ディレクトリを作成
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("KnittingTranslator-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        // 画像を PNG として保存（pageIndex ごとにグルーピング）
-        var imagesByPage: [Int: [String]] = [:]
-        for (idx, img) in images.enumerated() {
-            let filename = "img\(idx).png"
-            try savePNG(img.image, to: tempDir.appendingPathComponent(filename))
-            imagesByPage[img.pageIndex, default: []].append(filename)
-        }
-
         // .typ ソースを生成して書き出し
-        let typContent = buildDocument(pairs: pairs, imagesByPage: imagesByPage)
+        let typContent = buildDocument(pairs: pairs)
         let inputURL = tempDir.appendingPathComponent("input.typ")
         try typContent.write(to: inputURL, atomically: true, encoding: .utf8)
 
@@ -89,21 +81,10 @@ actor TypstGenerator {
         }
     }
 
-    // MARK: - Private: PNG helper
-
-    private func savePNG(_ image: CGImage, to url: URL) throws {
-        let rep = NSBitmapImageRep(cgImage: image)
-        guard let data = rep.representation(using: .png, properties: [:]) else {
-            throw TypstError.compilationFailed("画像の PNG 変換に失敗しました")
-        }
-        try data.write(to: url)
-    }
-
     // MARK: - Private: Typst document builder
 
-    private func buildDocument(pairs: [TranslationPair], imagesByPage: [Int: [String]]) -> String {
-        let maxPage = max(pairs.map(\.pageIndex).max() ?? 0,
-                         imagesByPage.keys.max() ?? 0)
+    private func buildDocument(pairs: [TranslationPair]) -> String {
+        let maxPage = pairs.map(\.pageIndex).max() ?? 0
 
         var pairsByPage = [[TranslationPair]](repeating: [], count: maxPage + 1)
         for p in pairs { pairsByPage[p.pageIndex].append(p) }
@@ -111,9 +92,8 @@ actor TypstGenerator {
         var sections: [String] = []
         for pageIdx in 0...maxPage {
             let pagePairs = pairsByPage[pageIdx]
-            let pageImgs  = imagesByPage[pageIdx] ?? []
-            guard !pagePairs.isEmpty || !pageImgs.isEmpty else { continue }
-            sections.append(buildSection(pageIdx: pageIdx, pairs: pagePairs, imageFiles: pageImgs))
+            guard !pagePairs.isEmpty else { continue }
+            sections.append(buildTextSection(pageIdx: pageIdx, pairs: pagePairs))
         }
 
         return """
@@ -126,59 +106,42 @@ actor TypstGenerator {
         """
     }
 
-    private func buildSection(pageIdx: Int, pairs: [TranslationPair], imageFiles: [String]) -> String {
+    private func buildTextSection(pageIdx: Int, pairs: [TranslationPair]) -> String {
         var parts: [String] = []
 
         // ページラベル
         parts.append(#"#align(center)[#text(size: 7pt, fill: luma(180))[— Page \#(pageIdx + 1) —]]"#)
 
-        // テキストペア テーブル
-        if !pairs.isEmpty {
-            let rows = pairs.map { pair -> String in
-                let orig  = typstMarkup(pair.original,    font: "\"Helvetica Neue\"",         fill: "luma(60)")
-                let trans = typstMarkup(pair.translation, font: "(\"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\")", fill: "luma(0)")
-                return "  [\(orig)], [\(trans)],"
-            }.joined(separator: "\n")
+        let rows = pairs.map { pair -> String in
+            let orig  = typstMarkup(pair.original,    font: "\"Helvetica Neue\"",         fill: "luma(60)")
+            let trans = typstMarkup(pair.translation, font: "(\"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\")", fill: "luma(0)")
+            return "  [\(orig)], [\(trans)],"
+        }.joined(separator: "\n")
 
-            parts.append("""
-            #table(
-              columns: (1fr, 1fr),
-              align: top,
-              inset: (x: 5pt, y: 4pt),
-              stroke: (x, y) => (
-                left:   if x == 1 { 0.8pt + luma(210) } else { none },
-                bottom: if y == 0 { 1.5pt + luma(170) } else { 0.4pt + luma(235) },
-                top:    none,
-                right:  none,
-              ),
-              table.header(
-                text(weight: "bold", size: 8pt, fill: luma(100))[Original],
-                text(weight: "bold", size: 8pt, fill: luma(100))[翻訳],
-              ),
-            \(rows)
-            )
-            """)
-        }
-
-        // 画像グリッド（2列）
-        if !imageFiles.isEmpty {
-            let cells = imageFiles.map { fn in
-                #"  box(width: 100%, height: 130pt)[#align(center)[#image("\#(fn)", fit: "contain", height: 100%)]],"#
-            }.joined(separator: "\n")
-
-            parts.append("""
-            #grid(
-              columns: (1fr, 1fr),
-              gutter: 8pt,
-            \(cells)
-            )
-            """)
-        }
+        parts.append("""
+        #table(
+          columns: (1fr, 1fr),
+          align: top,
+          inset: (x: 5pt, y: 4pt),
+          stroke: (x, y) => (
+            left:   if x == 1 { 0.8pt + luma(210) } else { none },
+            bottom: if y == 0 { 1.5pt + luma(170) } else { 0.4pt + luma(235) },
+            top:    none,
+            right:  none,
+          ),
+          table.header(
+            text(weight: "bold", size: 8pt, fill: luma(100))[Original],
+            text(weight: "bold", size: 8pt, fill: luma(100))[翻訳],
+          ),
+        \(rows)
+        )
+        """)
 
         return parts.joined(separator: "\n#v(4pt)\n")
     }
 
-    // MARK: - Private: Markup helpers
+
+// MARK: - Private: Markup helpers
 
     /// <b>/<i> タグを Typst の #strong[]/#emph[] に変換し、特殊文字をエスケープする
     private func typstMarkup(_ text: String, font: String, fill: String) -> String {
