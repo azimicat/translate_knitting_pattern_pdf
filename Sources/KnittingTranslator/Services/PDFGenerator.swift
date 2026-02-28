@@ -75,32 +75,79 @@ actor PDFGenerator {
     private func buildAttributedString(originals: [String], translated: [String]) -> CFAttributedString {
         let result = NSMutableAttributedString()
 
-        let origFont = NSFont(name: "Helvetica", size: 10) ?? NSFont.systemFont(ofSize: 10)
+        let origFont  = NSFont(name: "Helvetica", size: 10) ?? NSFont.systemFont(ofSize: 10)
         let transFont = NSFont(name: "HiraginoSans-W3", size: 10)
                      ?? NSFont(name: "Hiragino Sans", size: 10)
-                     ?? NSFont.systemFont(ofSize: 10)  // fallback chain
+                     ?? NSFont.systemFont(ofSize: 10)
         let labelFont = NSFont.boldSystemFont(ofSize: 8)
 
-        let origAttrs: [NSAttributedString.Key: Any] = [
-            .font: origFont,
-            .foregroundColor: NSColor.darkGray
-        ]
-        let transAttrs: [NSAttributedString.Key: Any] = [
-            .font: transFont,
-            .foregroundColor: NSColor.black
-        ]
-        let labelAttrs: [NSAttributedString.Key: Any] = [
-            .font: labelFont,
-            .foregroundColor: NSColor.gray
-        ]
+        let newline    = NSAttributedString(string: "\n",   attributes: [.font: origFont])
+        let dblNewline = NSAttributedString(string: "\n\n", attributes: [.font: transFont])
+        let labelAttrs: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: NSColor.gray]
 
         for (orig, trans) in zip(originals, translated) {
             result.append(NSAttributedString(string: "【原文】\n", attributes: labelAttrs))
-            result.append(NSAttributedString(string: orig + "\n", attributes: origAttrs))
+            result.append(attributed(from: orig,  baseFont: origFont,  color: .darkGray))
+            result.append(newline)
             result.append(NSAttributedString(string: "【翻訳】\n", attributes: labelAttrs))
-            result.append(NSAttributedString(string: trans + "\n\n", attributes: transAttrs))
+            result.append(attributed(from: trans, baseFont: transFont, color: .black))
+            result.append(dblNewline)
         }
         return result
+    }
+
+    /// <b>...</b> / <i>...</i> タグをパースして太字・斜体フォントを適用した NSAttributedString を返す
+    private func attributed(from text: String, baseFont: NSFont, color: NSColor) -> NSAttributedString {
+        let result  = NSMutableAttributedString()
+        let manager = NSFontManager.shared
+        var isBold   = false
+        var isItalic = false
+        var scanPos   = text.startIndex
+        var chunkStart = text.startIndex
+
+        while scanPos < text.endIndex {
+            guard text[scanPos] == "<" else {
+                scanPos = text.index(after: scanPos)
+                continue
+            }
+            let rest = text[scanPos...]
+            var tagLen  = 0
+            var newBold   = isBold
+            var newItalic = isItalic
+
+            if      rest.hasPrefix("<b>")  { tagLen = 3; newBold   = true  }
+            else if rest.hasPrefix("</b>") { tagLen = 4; newBold   = false }
+            else if rest.hasPrefix("<i>")  { tagLen = 3; newItalic = true  }
+            else if rest.hasPrefix("</i>") { tagLen = 4; newItalic = false }
+            else { scanPos = text.index(after: scanPos); continue }
+
+            // タグ前のテキストを現在のスタイルで追加
+            if chunkStart < scanPos {
+                let chunk = String(text[chunkStart..<scanPos])
+                let font  = styledFont(base: baseFont, bold: isBold, italic: isItalic, manager: manager)
+                result.append(NSAttributedString(string: chunk, attributes: [.font: font, .foregroundColor: color]))
+            }
+            isBold   = newBold
+            isItalic = newItalic
+            scanPos    = text.index(scanPos, offsetBy: tagLen)
+            chunkStart = scanPos
+        }
+
+        // 残りのテキストを追加
+        if chunkStart < text.endIndex {
+            let chunk = String(text[chunkStart...])
+            let font  = styledFont(base: baseFont, bold: isBold, italic: isItalic, manager: manager)
+            result.append(NSAttributedString(string: chunk, attributes: [.font: font, .foregroundColor: color]))
+        }
+        return result
+    }
+
+    private func styledFont(base: NSFont, bold: Bool, italic: Bool, manager: NSFontManager) -> NSFont {
+        guard bold || italic else { return base }
+        var font = base
+        if bold   { font = manager.convert(font, toHaveTrait: .boldFontMask)   }
+        if italic { font = manager.convert(font, toHaveTrait: .italicFontMask) }
+        return font
     }
 
     // 2-column × 3-row grid, 6 images per page

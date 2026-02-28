@@ -14,15 +14,16 @@ final class AppState {
     var progressLabel: String = ""
     var generatedDocument: PDFDocument? = nil
 
-    private let claudeService: ClaudeService
+    private let geminiService: GeminiService
     private let imageExtractor = ImageExtractor()
     private var translationTask: Task<Void, Never>?
 
     init() {
-        let key = EnvLoader.anthropicAPIKey() ?? ""
-        self.claudeService = ClaudeService(apiKey: key)
+        let key = EnvLoader.googleAIAPIKey() ?? ""
+        self.geminiService = GeminiService(apiKey: key)
+
         if key.isEmpty {
-            self.errorMessage = "Anthropic APIキーが未設定です。プロジェクト直下の .env を確認してください。"
+            self.errorMessage = "Google AI APIキーが未設定です。プロジェクト直下の .env に GOOGLE_AI_API_KEY を設定してください。"
         }
     }
 
@@ -44,34 +45,35 @@ final class AppState {
                 }
                 defer { url.stopAccessingSecurityScopedResource() }
 
-                // 2. Claude API へ PDF を1ページずつ送信して翻訳（0.00→0.80）
-                progressLabel = "翻訳中... (1ページ目)"
-                let pairs = try await claudeService.translatePDF(
+                // 2. Gemini でテキスト抽出＋翻訳（0.00→0.80）
+                progressLabel = "Gemini で翻訳中..."
+                let pairs = try await geminiService.translatePDF(
                     at: url,
                     mode: mode
                 ) { [weak self] p in
                     await MainActor.run {
                         self?.progress = p * 0.80
-                        // p は (完了ページ数 / 総ページ数) なので逆算してページ番号を表示
-                        // 厳密な総ページ数は ClaudeService 内部のため近似表示
-                        self?.progressLabel = String(format: "翻訳中... %.0f%%", p * 100)
+                        self?.progressLabel = String(format: "Gemini で翻訳中... %.0f%%", p * 100)
                     }
                 }
                 progress = 0.80
 
-                // 3. 画像抽出（任意）
+                let originals   = pairs.map(\.original)
+                let translated  = pairs.map(\.translation)
+
+                // 3. 画像抽出（0.80→0.90）
                 progressLabel = "画像を抽出中..."
                 let images: [ExtractedImage] = ignoreImages ? [] :
                     (try? await imageExtractor.extractImages(from: url)) ?? []
                 progress = 0.90
 
-                // 4. PDF 生成
+                // 4. PDF 生成（0.90→1.00）
                 progressLabel = "PDFを生成中..."
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString + ".pdf")
                 try await PDFGenerator().generate(
-                    originals: pairs.map(\.original),
-                    translated: pairs.map(\.translation),
+                    originals: originals,
+                    translated: translated,
                     images: images,
                     to: tempURL
                 )

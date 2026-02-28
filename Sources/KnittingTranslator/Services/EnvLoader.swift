@@ -23,7 +23,7 @@ enum EnvLoader {
         return [:]
     }
 
-    static func anthropicAPIKey() -> String? {
-        load()["ANTHROPIC_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
+    static func googleAIAPIKey() -> String? {
+        load()["GOOGLE_AI_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
     }
 }
