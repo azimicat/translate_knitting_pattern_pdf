@@ -7,99 +7,124 @@ import ImageIO
 struct ExtractedImage: Sendable {
     let image: CGImage
     let pageIndex: Int
-    let bounds: CGRect
 }
 
-// MARK: - ScannerContext (must be a pure value type for UnsafeMutablePointer safety)
+// MARK: - ScannerContext (class で参照共有・再帰対応)
 
-struct ScannerContext {
-    var ctmStack: [CGAffineTransform] = [.identity]
-    var currentCTM: CGAffineTransform = .identity
+final class ScannerContext {
+    var ctmStack: [CGAffineTransform] = []
+    var currentCTM: CGAffineTransform
     var images: [ExtractedImage] = []
-    var pageIndex: Int = 0
-    var pageHeight: CGFloat = 0
-    // Store the XObject dictionary for lookup in op_Do
-    var xObjectDict: CGPDFDictionaryRef? = nil
-}
+    var xObjectDict: CGPDFDictionaryRef?
+    let pageIndex: Int
+    let pageHeight: CGFloat
+    let operatorTable: CGPDFOperatorTableRef
+    /// ページのコンテンツストリーム（Form XObject のリソース継承に使用）
+    /// スキャン中のみ有効（Release後はnil）
+    var pageContentStream: CGPDFContentStreamRef? = nil
 
-// MARK: - File-scope C callbacks (cannot capture, use info pointer)
-
-func pdfOp_q(_ scanner: CGPDFScannerRef, _ info: UnsafeMutableRawPointer?) {
-    let ctx = info!.assumingMemoryBound(to: ScannerContext.self)
-    ctx.pointee.ctmStack.append(ctx.pointee.currentCTM)
-}
-
-func pdfOp_Q(_ scanner: CGPDFScannerRef, _ info: UnsafeMutableRawPointer?) {
-    let ctx = info!.assumingMemoryBound(to: ScannerContext.self)
-    if let prev = ctx.pointee.ctmStack.popLast() {
-        ctx.pointee.currentCTM = prev
+    init(pageIndex: Int,
+         pageHeight: CGFloat,
+         xObjectDict: CGPDFDictionaryRef?,
+         operatorTable: CGPDFOperatorTableRef,
+         startCTM: CGAffineTransform = .identity) {
+        self.pageIndex      = pageIndex
+        self.pageHeight     = pageHeight
+        self.xObjectDict    = xObjectDict
+        self.operatorTable  = operatorTable
+        self.currentCTM     = startCTM
     }
 }
 
+// MARK: - File-scope C callbacks
+
+func pdfOp_q(_ scanner: CGPDFScannerRef, _ info: UnsafeMutableRawPointer?) {
+    let ctx = Unmanaged<ScannerContext>.fromOpaque(info!).takeUnretainedValue()
+    ctx.ctmStack.append(ctx.currentCTM)
+}
+
+func pdfOp_Q(_ scanner: CGPDFScannerRef, _ info: UnsafeMutableRawPointer?) {
+    let ctx = Unmanaged<ScannerContext>.fromOpaque(info!).takeUnretainedValue()
+    if let saved = ctx.ctmStack.popLast() { ctx.currentCTM = saved }
+}
+
 func pdfOp_cm(_ scanner: CGPDFScannerRef, _ info: UnsafeMutableRawPointer?) {
-    // PDF "cm" pushes a b c d e f; scanner stack is LIFO → pop f e d c b a
-    var f: CGPDFReal = 0
-    var e: CGPDFReal = 0
-    var d: CGPDFReal = 0
-    var c: CGPDFReal = 0
-    var b: CGPDFReal = 0
-    var a: CGPDFReal = 0
+    var f: CGPDFReal = 0, e: CGPDFReal = 0, d: CGPDFReal = 0
+    var c: CGPDFReal = 0, b: CGPDFReal = 0, a: CGPDFReal = 0
     guard CGPDFScannerPopNumber(scanner, &f),
           CGPDFScannerPopNumber(scanner, &e),
           CGPDFScannerPopNumber(scanner, &d),
           CGPDFScannerPopNumber(scanner, &c),
           CGPDFScannerPopNumber(scanner, &b),
           CGPDFScannerPopNumber(scanner, &a) else { return }
-    let m = CGAffineTransform(
-        a: CGFloat(a), b: CGFloat(b),
-        c: CGFloat(c), d: CGFloat(d),
-        tx: CGFloat(e), ty: CGFloat(f)
-    )
-    let ctx = info!.assumingMemoryBound(to: ScannerContext.self)
-    // Post-multiply: new CTM = current * m (PDF matrix composition)
-    ctx.pointee.currentCTM = ctx.pointee.currentCTM.concatenating(m)
+    let m = CGAffineTransform(a: CGFloat(a), b: CGFloat(b),
+                               c: CGFloat(c), d: CGFloat(d),
+                               tx: CGFloat(e), ty: CGFloat(f))
+    let ctx = Unmanaged<ScannerContext>.fromOpaque(info!).takeUnretainedValue()
+    ctx.currentCTM = ctx.currentCTM.concatenating(m)
 }
 
 func pdfOp_Do(_ scanner: CGPDFScannerRef, _ info: UnsafeMutableRawPointer?) {
     var name: UnsafePointer<CChar>? = nil
     guard CGPDFScannerPopName(scanner, &name), let name else { return }
-    let ctx = info!.assumingMemoryBound(to: ScannerContext.self)
-    guard let xDict = ctx.pointee.xObjectDict else { return }
+    let ctx = Unmanaged<ScannerContext>.fromOpaque(info!).takeUnretainedValue()
+    guard let xDict = ctx.xObjectDict else { return }
 
-    // Look up name in XObject dict
     var streamRef: CGPDFStreamRef? = nil
-    guard CGPDFDictionaryGetStream(xDict, name, &streamRef), let stream = streamRef else { return }
+    guard CGPDFDictionaryGetStream(xDict, name, &streamRef),
+          let stream = streamRef else { return }
     let streamDict = CGPDFStreamGetDictionary(stream)!
 
-    // Must be /Subtype /Image
-    var subtypeName: UnsafePointer<CChar>? = nil
-    guard CGPDFDictionaryGetName(streamDict, "Subtype", &subtypeName),
-          let subtypeName, String(cString: subtypeName) == "Image" else { return }
+    var subtypePtr: UnsafePointer<CChar>? = nil
+    guard CGPDFDictionaryGetName(streamDict, "Subtype", &subtypePtr),
+          let subtypePtr else { return }
 
+    switch String(cString: subtypePtr) {
+    case "Image":
+        extractImageXObject(stream: stream, dict: streamDict, ctx: ctx)
+    case "Form":
+        processFormXObject(stream: stream, dict: streamDict, parentCtx: ctx)
+    default:
+        break
+    }
+}
+
+// MARK: - Image extraction helper
+
+func extractImageXObject(stream: CGPDFStreamRef, dict: CGPDFDictionaryRef, ctx: ScannerContext) {
     var width: CGPDFInteger = 0
     var height: CGPDFInteger = 0
-    CGPDFDictionaryGetInteger(streamDict, "Width", &width)
-    CGPDFDictionaryGetInteger(streamDict, "Height", &height)
+    CGPDFDictionaryGetInteger(dict, "Width",  &width)
+    CGPDFDictionaryGetInteger(dict, "Height", &height)
 
-    // Skip images with long side ≤ 80px (icons, decorations)
-    guard max(width, height) > 80 else { return }
+    // 短辺 80px 以下の小画像（アイコン・装飾）を除外
+    guard min(width, height) > 80 else { return }
 
-    // Extract pixel data
+    // CTM でページ上の配置矩形を求める（y-up 座標系）
+    let bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
+        .applying(ctx.currentCTM)
+        .standardized
+
+    // 上部 10% に完全に収まる → ヘッダー除外
+    // 下部 10% に完全に収まる → フッター除外
+    let pH = ctx.pageHeight
+    if bounds.minY > pH * 0.90 { return }
+    if bounds.maxY < pH * 0.10 { return }
+
+    // ピクセルデータを取得
     var format = CGPDFDataFormat.raw
     guard let cfData = CGPDFStreamCopyData(stream, &format) else { return }
 
     let cgImage: CGImage?
     if format == .jpegEncoded || format == .JPEG2000 {
-        // Use ImageIO for JPEG/JPEG2000
         let src = CGImageSourceCreateWithData(cfData, nil)
         cgImage = src.flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
     } else {
-        // Raw pixel data: construct CGImage from color space info
         var bpc: CGPDFInteger = 8
-        CGPDFDictionaryGetInteger(streamDict, "BitsPerComponent", &bpc)
+        CGPDFDictionaryGetInteger(dict, "BitsPerComponent", &bpc)
         var csNamePtr: UnsafePointer<CChar>? = nil
         let colorSpace: CGColorSpace
-        if CGPDFDictionaryGetName(streamDict, "ColorSpace", &csNamePtr), let csn = csNamePtr {
+        if CGPDFDictionaryGetName(dict, "ColorSpace", &csNamePtr), let csn = csNamePtr {
             switch String(cString: csn) {
             case "DeviceGray": colorSpace = CGColorSpaceCreateDeviceGray()
             case "DeviceCMYK": colorSpace = CGColorSpaceCreateDeviceCMYK()
@@ -110,35 +135,70 @@ func pdfOp_Do(_ scanner: CGPDFScannerRef, _ info: UnsafeMutableRawPointer?) {
         }
         let nComp = colorSpace.numberOfComponents
         cgImage = CGImage(
-            width: Int(width),
-            height: Int(height),
+            width: Int(width), height: Int(height),
             bitsPerComponent: Int(bpc),
             bitsPerPixel: Int(bpc) * nComp,
             bytesPerRow: Int(width) * nComp * Int(bpc) / 8,
             space: colorSpace,
             bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
             provider: CGDataProvider(data: cfData)!,
-            decode: nil,
-            shouldInterpolate: true,
-            intent: .defaultIntent
+            decode: nil, shouldInterpolate: true, intent: .defaultIntent
         )
     }
-    guard let cgImage else { return }
+    guard let img = cgImage else { return }
+    ctx.images.append(ExtractedImage(image: img, pageIndex: ctx.pageIndex))
+}
 
-    // Image bounds on page: CTM transforms unit square [0,1]×[0,1]
-    let imgBoundsOnPage = CGRect(x: 0, y: 0, width: 1, height: 1)
-        .applying(ctx.pointee.currentCTM)
+// MARK: - Form XObject recursive processing
 
-    // Filter header (top 10%) and footer (bottom 10%) regions
-    // PDF coords: y=0 = bottom, y=pageHeight = top
-    let pH = ctx.pointee.pageHeight
-    if imgBoundsOnPage.maxY > pH * 0.90 || imgBoundsOnPage.minY < pH * 0.10 { return }
+func processFormXObject(stream: CGPDFStreamRef, dict: CGPDFDictionaryRef, parentCtx: ScannerContext) {
+    // Form の Matrix 属性（省略時は単位行列）
+    var formMatrix: CGAffineTransform = .identity
+    var matArr: CGPDFArrayRef? = nil
+    if CGPDFDictionaryGetArray(dict, "Matrix", &matArr), let arr = matArr {
+        var a: CGPDFReal = 1, b: CGPDFReal = 0, c: CGPDFReal = 0
+        var d: CGPDFReal = 1, e: CGPDFReal = 0, f: CGPDFReal = 0
+        CGPDFArrayGetNumber(arr, 0, &a); CGPDFArrayGetNumber(arr, 1, &b)
+        CGPDFArrayGetNumber(arr, 2, &c); CGPDFArrayGetNumber(arr, 3, &d)
+        CGPDFArrayGetNumber(arr, 4, &e); CGPDFArrayGetNumber(arr, 5, &f)
+        formMatrix = CGAffineTransform(a: CGFloat(a), b: CGFloat(b),
+                                        c: CGFloat(c), d: CGFloat(d),
+                                        tx: CGFloat(e), ty: CGFloat(f))
+    }
 
-    ctx.pointee.images.append(ExtractedImage(
-        image: cgImage,
-        pageIndex: ctx.pointee.pageIndex,
-        bounds: imgBoundsOnPage
-    ))
+    // Form の Resources から XObject dict を取得
+    var formResources: CGPDFDictionaryRef? = nil
+    var formXObjDict: CGPDFDictionaryRef? = nil
+    if CGPDFDictionaryGetDictionary(dict, "Resources", &formResources),
+       let res = formResources {
+        CGPDFDictionaryGetDictionary(res, "XObject", &formXObjDict)
+    }
+
+    // Form 内で CTM を引き継いだサブコンテキストを生成
+    let subCtx = ScannerContext(
+        pageIndex:     parentCtx.pageIndex,
+        pageHeight:    parentCtx.pageHeight,
+        xObjectDict:   formXObjDict ?? parentCtx.xObjectDict,
+        operatorTable: parentCtx.operatorTable,
+        startCTM:      parentCtx.currentCTM.concatenating(formMatrix)
+    )
+
+    // Form のリソースが取得できない場合はスキップ
+    guard let formRes = formResources else { return }
+    // ページのコンテンツストリームをリソース継承の親として渡す
+    guard let parent = parentCtx.pageContentStream else { return }
+
+    // Form のコンテンツストリームをスキャン
+    let formStream = CGPDFContentStreamCreateWithStream(stream, formRes, parent)
+    let ptr = Unmanaged.passRetained(subCtx).toOpaque()
+    let formScanner = CGPDFScannerCreate(formStream, parentCtx.operatorTable, ptr)
+    CGPDFScannerScan(formScanner)
+    CGPDFScannerRelease(formScanner)
+    CGPDFContentStreamRelease(formStream)
+    Unmanaged<ScannerContext>.fromOpaque(ptr).release()
+
+    // サブコンテキストの画像を親へマージ
+    parentCtx.images.append(contentsOf: subCtx.images)
 }
 
 // MARK: - Actor
@@ -147,7 +207,6 @@ actor ImageExtractor {
     func extractImages(from url: URL) async throws -> [ExtractedImage] {
         guard let pdfDoc = CGPDFDocument(url as CFURL) else { return [] }
 
-        // Build operator table once
         let table = CGPDFOperatorTableCreate()!
         CGPDFOperatorTableSetCallback(table, "q",  pdfOp_q)
         CGPDFOperatorTableSetCallback(table, "Q",  pdfOp_Q)
@@ -160,7 +219,7 @@ actor ImageExtractor {
             guard let page = pdfDoc.page(at: pageNum) else { continue }
             let mediaBox = page.getBoxRect(.mediaBox)
 
-            // Resolve XObject dict for this page
+            // ページの XObject 辞書を取得
             var xObjDict: CGPDFDictionaryRef? = nil
             if let pageDict = page.dictionary {
                 var resDict: CGPDFDictionaryRef? = nil
@@ -170,26 +229,27 @@ actor ImageExtractor {
                 }
             }
 
-            // Heap-allocate context (stack address would become dangling during scan)
-            let ctxPtr = UnsafeMutablePointer<ScannerContext>.allocate(capacity: 1)
-            ctxPtr.initialize(to: ScannerContext(
-                pageIndex: pageNum - 1,
-                pageHeight: mediaBox.height,
-                xObjectDict: xObjDict
-            ))
-            defer {
-                ctxPtr.deinitialize(count: 1)
-                ctxPtr.deallocate()
-            }
+            let ctx = ScannerContext(
+                pageIndex:    pageNum - 1,
+                pageHeight:   mediaBox.height,
+                xObjectDict:  xObjDict,
+                operatorTable: table
+            )
 
-            let stream = CGPDFContentStreamCreateWithPage(page)
-            let scanner = CGPDFScannerCreate(stream, table, UnsafeMutableRawPointer(ctxPtr))
+            let contentStream = CGPDFContentStreamCreateWithPage(page)
+            // スキャン中のみ有効な参照としてコンテキストに保持（Form XObject の親継承用）
+            ctx.pageContentStream = contentStream
+            let ptr = Unmanaged.passRetained(ctx).toOpaque()
+            let scanner = CGPDFScannerCreate(contentStream, table, ptr)
             CGPDFScannerScan(scanner)
             CGPDFScannerRelease(scanner)
-            CGPDFContentStreamRelease(stream)
+            ctx.pageContentStream = nil  // Release前にクリア
+            CGPDFContentStreamRelease(contentStream)
+            Unmanaged<ScannerContext>.fromOpaque(ptr).release()
 
-            allImages.append(contentsOf: ctxPtr.pointee.images)
+            allImages.append(contentsOf: ctx.images)
         }
+
         return allImages
     }
 }

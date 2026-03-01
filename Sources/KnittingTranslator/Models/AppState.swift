@@ -5,7 +5,6 @@ import SwiftUI
 @Observable
 final class AppState {
     var mode: TranslationMode = .knitting
-    var ignoreImages: Bool = false
     var droppedURL: URL? = nil
     var originalFileName: String = ""
     var errorMessage: String? = nil
@@ -14,22 +13,21 @@ final class AppState {
     var progressLabel: String = ""
     var generatedDocument: PDFDocument? = nil
 
-    private let claudeService: ClaudeService
-    private let imageExtractor = ImageExtractor()
+    private let geminiService: GeminiService
     private var translationTask: Task<Void, Never>?
 
     init() {
-        let key = EnvLoader.anthropicAPIKey() ?? ""
-        self.claudeService = ClaudeService(apiKey: key)
+        let key = EnvLoader.googleAIAPIKey() ?? ""
+        self.geminiService = GeminiService(apiKey: key)
+
         if key.isEmpty {
-            self.errorMessage = "Anthropic APIキーが未設定です。プロジェクト直下の .env を確認してください。"
+            self.errorMessage = "Google AI APIキーが未設定です。プロジェクト直下の .env に GOOGLE_AI_API_KEY を設定してください。"
         }
     }
 
     func processTranslation() async {
         guard let url = droppedURL else { return }
         let mode = self.mode
-        let ignoreImages = self.ignoreImages
 
         isProcessing = true
         progress = 0
@@ -44,44 +42,33 @@ final class AppState {
                 }
                 defer { url.stopAccessingSecurityScopedResource() }
 
-                // 2. Claude API へ PDF を1ページずつ送信して翻訳（0.00→0.80）
-                progressLabel = "翻訳中... (1ページ目)"
-                let pairs = try await claudeService.translatePDF(
+                // 2. Gemini でテキスト抽出＋翻訳（0.00→0.90）
+                progressLabel = "Gemini で翻訳中..."
+                let pairs = try await geminiService.translatePDF(
                     at: url,
                     mode: mode
                 ) { [weak self] p in
                     await MainActor.run {
-                        self?.progress = p * 0.80
-                        // p は (完了ページ数 / 総ページ数) なので逆算してページ番号を表示
-                        // 厳密な総ページ数は ClaudeService 内部のため近似表示
-                        self?.progressLabel = String(format: "翻訳中... %.0f%%", p * 100)
+                        self?.progress = p * 0.90
+                        self?.progressLabel = String(format: "Gemini で翻訳中... %.0f%%", p * 100)
                     }
                 }
-                progress = 0.80
-
-                // 3. 画像抽出（任意）
-                progressLabel = "画像を抽出中..."
-                let images: [ExtractedImage] = ignoreImages ? [] :
-                    (try? await imageExtractor.extractImages(from: url)) ?? []
                 progress = 0.90
 
-                // 4. PDF 生成
+                // 3. PDF 生成（0.90→1.00）
                 progressLabel = "PDFを生成中..."
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString + ".pdf")
-                try await PDFGenerator().generate(
-                    originals: pairs.map(\.original),
-                    translated: pairs.map(\.translation),
-                    images: images,
-                    to: tempURL
-                )
+                try await TypstGenerator().generate(pairs: pairs, to: tempURL)
 
                 generatedDocument = PDFDocument(url: tempURL)
                 progress = 1.0
                 progressLabel = "完了"
 
             } catch {
-                errorMessage = error.localizedDescription
+                if !(error is CancellationError) {
+                    errorMessage = error.localizedDescription
+                }
             }
             isProcessing = false
         }

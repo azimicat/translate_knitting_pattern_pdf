@@ -17,15 +17,12 @@ struct ContentView: View {
                 )
 
                 GroupBox("翻訳設定") {
-                    VStack(alignment: .leading) {
-                        Picker("翻訳モード", selection: $appState.mode) {
-                            ForEach(TranslationMode.allCases) {
-                                Text($0.rawValue).tag($0)
-                            }
+                    Picker("翻訳モード", selection: $appState.mode) {
+                        ForEach(TranslationMode.allCases) {
+                            Text($0.rawValue).tag($0)
                         }
-                        .pickerStyle(.radioGroup)
-                        Toggle("画像を無視", isOn: $appState.ignoreImages)
                     }
+                    .pickerStyle(.radioGroup)
                 }
 
                 HStack {
@@ -70,18 +67,16 @@ struct ContentView: View {
         }
     }
 
-    // NSSavePanel: async begin() available on macOS 13+
+    // runModal() でモーダルループを自前で回すことでキーボードフォーカスを確実に取得する
     // Requires com.apple.security.files.user-selected.read-write entitlement
     @MainActor
     private func saveGeneratedPDF() {
         guard let doc = appState.generatedDocument else { return }
-        Task {
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.pdf]
-            panel.nameFieldStringValue = "\(appState.originalFileName)_jp.pdf"
-            let response = await panel.begin()
-            guard response == .OK, let dest = panel.url else { return }
-            doc.dataRepresentation().flatMap { try? $0.write(to: dest) }
-        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "\(appState.originalFileName)_jp.pdf"
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        doc.dataRepresentation().flatMap { try? $0.write(to: dest) }
     }
 }
