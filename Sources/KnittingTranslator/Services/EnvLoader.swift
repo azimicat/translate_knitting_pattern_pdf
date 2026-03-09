@@ -3,10 +3,11 @@ import Foundation
 enum EnvLoader {
     static func load() -> [String: String] {
         let paths: [String] = [
+            // バンドル内 (make_app.sh で .app に埋め込まれた .env)
+            Bundle.main.resourceURL?.appendingPathComponent(".env").path,
+            Bundle.main.path(forResource: ".env", ofType: nil),
             // カレントディレクトリ（swift run 実行時はプロジェクト直下）
             FileManager.default.currentDirectoryPath + "/.env",
-            // バンドル内（Xcode アーカイブ時のフォールバック）
-            Bundle.main.path(forResource: ".env", ofType: nil)
         ].compactMap { $0 }
 
         for path in paths {
