@@ -4,9 +4,9 @@
 <dict>
 	<key>files</key>
 	<dict>
-		<key>Resources/.env</key>
+		<key>Resources/AppIcon.icns</key>
 		<data>
-		Xhi3njHOzoqUcrKwwqhuKw8KoHw=
+		KDDnhB1GAWmrcz4+bmcFcTG2Qn4=
 		</data>
 		<key>Resources/KnittingTranslator_KnittingTranslator.bundle/crochet_dictionary.json</key>
 		<data>
@@ -19,11 +19,11 @@
 	</dict>
 	<key>files2</key>
 	<dict>
-		<key>Resources/.env</key>
+		<key>Resources/AppIcon.icns</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			uHoXKDTpjp524lUtZT5yeT1LddOheuInUvV++YAhcLU=
+			5k/RllpyDORyR4+wQkrl7vu9JlECF52xmneoSdMtHcM=
 			</data>
 		</dict>
 		<key>Resources/KnittingTranslator_KnittingTranslator.bundle/crochet_dictionary.json</key>

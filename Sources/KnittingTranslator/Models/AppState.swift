@@ -1,68 +1,92 @@
 import PDFKit
 import SwiftUI
 
+/// アプリ全体の状態管理とパイプライン制御を担う。
+/// パイプライン: GeminiService（翻訳） → TypstGenerator（PDF生成）
 @MainActor
 @Observable
 final class AppState {
+
+    // MARK: - Published state
+
     var mode: TranslationMode = .knitting
-    var droppedURL: URL? = nil
+    var droppedURL: URL?       = nil
     var originalFileName: String = ""
-    var errorMessage: String? = nil
-    var isProcessing: Bool = false
-    var progress: Double = 0
-    var progressLabel: String = ""
+    var errorMessage: String?  = nil
+    var isProcessing: Bool     = false
+    var progress: Double       = 0
+    var progressLabel: String  = ""
     var generatedDocument: PDFDocument? = nil
 
-    private let geminiService: GeminiService
+    /// true のとき APIKeySetupView シートを表示する
+    var showAPIKeySetup: Bool = false
+
+    // MARK: - Services
+
+    let apiKeyService = APIKeyService()
+    private let geminiService = GeminiService()
     private var translationTask: Task<Void, Never>?
 
-    init() {
-        let key = EnvLoader.googleAIAPIKey() ?? ""
-        self.geminiService = GeminiService(apiKey: key)
+    // MARK: - Init
 
-        if key.isEmpty {
-            self.errorMessage = "Google AI APIキーが未設定です。プロジェクト直下の .env に GOOGLE_AI_API_KEY を設定してください。"
-        }
+    init() {
+        // APIキー未設定なら起動時に設定シートを表示
+        showAPIKeySetup = !apiKeyService.hasKey
     }
+
+    // MARK: - API Key
+
+    func saveAPIKey(_ key: String) {
+        apiKeyService.save(key)
+        showAPIKeySetup = false
+        errorMessage = nil
+    }
+
+    // MARK: - Translation
 
     func processTranslation() async {
         guard let url = droppedURL else { return }
+        guard let apiKey = apiKeyService.apiKey() else {
+            showAPIKeySetup = true
+            return
+        }
         let mode = self.mode
 
         isProcessing = true
-        progress = 0
+        progress     = 0
         errorMessage = nil
 
         translationTask = Task { [weak self] in
             guard let self else { return }
             do {
-                // 1. Security-scoped access
+                // security-scoped resource はファイルピッカー / ドロップで取得した URL に必要
                 guard url.startAccessingSecurityScopedResource() else {
                     throw AppError.fileAccessDenied
                 }
                 defer { url.stopAccessingSecurityScopedResource() }
 
-                // 2. Gemini でテキスト抽出＋翻訳（0.00→0.90）
+                // 1. Gemini で翻訳（0% → 90%）
                 progressLabel = "Gemini で翻訳中..."
                 let pairs = try await geminiService.translatePDF(
                     at: url,
-                    mode: mode
+                    mode: mode,
+                    apiKey: apiKey
                 ) { [weak self] p in
                     await MainActor.run {
-                        self?.progress = p * 0.90
+                        self?.progress     = p * 0.90
                         self?.progressLabel = String(format: "Gemini で翻訳中... %.0f%%", p * 100)
                     }
                 }
                 progress = 0.90
 
-                // 3. PDF 生成（0.90→1.00）
+                // 2. Typst で PDF 生成（90% → 100%）
                 progressLabel = "PDFを生成中..."
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString + ".pdf")
                 try await TypstGenerator().generate(pairs: pairs, to: tempURL)
 
                 generatedDocument = PDFDocument(url: tempURL)
-                progress = 1.0
+                progress      = 1.0
                 progressLabel = "完了"
 
             } catch {
@@ -80,6 +104,8 @@ final class AppState {
         isProcessing = false
     }
 }
+
+// MARK: - AppError
 
 enum AppError: LocalizedError {
     case fileAccessDenied

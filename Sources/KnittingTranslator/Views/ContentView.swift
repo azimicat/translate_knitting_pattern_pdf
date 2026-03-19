@@ -36,6 +36,16 @@ struct ContentView: View {
                         Button("キャンセル") { appState.cancelTranslation() }
                             .buttonStyle(.bordered)
                     }
+
+                    Spacer()
+
+                    Button {
+                        appState.showAPIKeySetup = true
+                    } label: {
+                        Image(systemName: "key")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("APIキーを変更")
                 }
 
                 if appState.isProcessing {
@@ -65,10 +75,16 @@ struct ContentView: View {
                 .background(.windowBackground)
             }
         }
+        .sheet(isPresented: Binding(
+            get: { appState.showAPIKeySetup },
+            set: { appState.showAPIKeySetup = $0 }
+        )) {
+            APIKeySetupView(existingKey: appState.apiKeyService.apiKey()) { key in
+                appState.saveAPIKey(key)
+            }
+        }
     }
 
-    // runModal() でモーダルループを自前で回すことでキーボードフォーカスを確実に取得する
-    // Requires com.apple.security.files.user-selected.read-write entitlement
     @MainActor
     private func saveGeneratedPDF() {
         guard let doc = appState.generatedDocument else { return }

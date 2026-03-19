@@ -3,17 +3,18 @@ import PDFKit
 
 // MARK: - Types
 
+/// 翻訳の1ペア（原文 + 日本語訳）。pageIndex は JSON に含まれず translatePage() で付与する。
 struct TranslationPair: Decodable {
     let original: String
     let translation: String
-    var pageIndex: Int = 0  // JSONデコード対象外・translatePage() で注入
+    var pageIndex: Int = 0
 
     private enum CodingKeys: String, CodingKey {
         case original, translation
     }
 }
 
-enum GeminiError: LocalizedError {
+enum GeminiError: LocalizedError, Equatable {
     case pdfLoadFailed
     case apiError(statusCode: Int, body: String)
     case emptyResponse
@@ -33,9 +34,10 @@ enum GeminiError: LocalizedError {
 // MARK: - GeminiService
 
 actor GeminiService {
-    private let apiKey: String
+
     private let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
+    /// 翻訳は1ページあたり最大300秒かかる場合があるためタイムアウトを長めに設定
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest  = 300
@@ -43,14 +45,20 @@ actor GeminiService {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String) {
-        self.apiKey = apiKey
-    }
+    init() {}
 
-    /// PDFを1ページずつ Gemini に送り、抽出＋翻訳を一括で行う
+    // MARK: - Public
+
+    /// PDF を1ページずつ Gemini に送り、テキスト抽出と英→日翻訳を一括で行う。
+    /// - Parameters:
+    ///   - url: 翻訳対象のPDF URL（security-scoped resource は呼び出し元が開くこと）
+    ///   - mode: 棒針 / かぎ針（プロンプトの文脈として使用）
+    ///   - apiKey: Google AI Studio の API キー
+    ///   - progressCallback: 0.0〜1.0 の進捗を受け取るクロージャ
     func translatePDF(
         at url: URL,
         mode: TranslationMode,
+        apiKey: String,
         progressCallback: ((Double) async -> Void)? = nil
     ) async throws -> [TranslationPair] {
 
@@ -68,6 +76,7 @@ actor GeminiService {
 
             guard let page = document.page(at: pageIndex) else { continue }
 
+            // 1ページずつ PDF に再構築して送信（ページ単位で進捗更新するため）
             let singlePageDoc = PDFDocument()
             singlePageDoc.insert(page, at: 0)
             guard let pageData = singlePageDoc.dataRepresentation() else { continue }
@@ -76,7 +85,8 @@ actor GeminiService {
                 pageData: pageData,
                 pageNumber: pageIndex + 1,
                 totalPages: pageCount,
-                mode: mode
+                mode: mode,
+                apiKey: apiKey
             )
             allPairs.append(contentsOf: pairs)
 
@@ -86,14 +96,16 @@ actor GeminiService {
         return allPairs
     }
 
-    // MARK: - Private
+    // MARK: - Private: Network
 
     private func translatePage(
         pageData: Data,
         pageNumber: Int,
         totalPages: Int,
-        mode: TranslationMode
+        mode: TranslationMode,
+        apiKey: String
     ) async throws -> [TranslationPair] {
+
         let body = buildRequestBody(
             base64PDF: pageData.base64EncodedString(),
             mode: mode,
@@ -117,10 +129,17 @@ actor GeminiService {
         }
 
         var pairs = try parseResponse(data: data)
+        // pageIndex は JSON に含まれないため、ここで注入する
         for i in pairs.indices { pairs[i].pageIndex = pageNumber - 1 }
         return pairs
     }
 
+    // MARK: - Private: Request builder
+
+    /// Gemini へ送信するリクエストボディを構築する。
+    /// プロンプトはテキスト種別（パターン指示 vs 説明文）で段落化ルールを変え、
+    /// <b>/<i> タグでフォントスタイルを保持し、ヘッダー/フッター・空行を除外するよう指示する。
+    /// thinking モードは翻訳タスクでは不要かつ大幅な遅延原因になるため無効化する。
     private func buildRequestBody(
         base64PDF: String,
         mode: TranslationMode,
@@ -163,35 +182,27 @@ actor GeminiService {
             "contents": [
                 [
                     "parts": [
-                        [
-                            "inline_data": [
-                                "mime_type": "application/pdf",
-                                "data": base64PDF
-                            ]
-                        ],
-                        [
-                            "text": prompt
-                        ]
+                        ["inline_data": ["mime_type": "application/pdf", "data": base64PDF]],
+                        ["text": prompt],
                     ]
                 ]
             ],
-            // Gemini 2.5 Flash はデフォルトで thinking モードが有効。
-            // 翻訳タスクでは不要かつ大幅な遅延の原因になるため無効化する。
             "generationConfig": [
-                "thinkingConfig": [
-                    "thinkingBudget": 0
-                ]
-            ]
+                "thinkingConfig": ["thinkingBudget": 0]
+            ],
         ]
     }
 
-    private func parseResponse(data: Data) throws -> [TranslationPair] {
+    // MARK: - Internal: Response parser (internal for testing)
+
+    /// Gemini のレスポンス JSON から TranslationPair 配列を抽出する。
+    /// Gemini は JSON の前後に markdown コードフェンスや余分な文言を付加することがあるため、
+    /// 最初の `[` から最後の `]` までを切り出してデコードする。
+    func parseResponse(data: Data) throws -> [TranslationPair] {
         struct GeminiResponse: Decodable {
             struct Candidate: Decodable {
                 struct Content: Decodable {
-                    struct Part: Decodable {
-                        let text: String?
-                    }
+                    struct Part: Decodable { let text: String? }
                     let parts: [Part]
                 }
                 let content: Content
@@ -205,20 +216,18 @@ actor GeminiService {
             throw GeminiError.emptyResponse
         }
 
-        // JSON配列部分を抽出
+        // JSON配列部分を抽出（テキストなしページは [] を返す）
         guard let start = text.firstIndex(of: "["),
               let end   = text.lastIndex(of: "]") else {
-            return []  // テキストなしページは空配列
+            return []
         }
-        let jsonSlice = String(text[start...end])
 
-        guard let jsonData = jsonSlice.data(using: .utf8),
+        guard let jsonData = String(text[start...end]).data(using: .utf8),
               let pairs = try? JSONDecoder().decode([TranslationPair].self, from: jsonData) else {
             return []
         }
 
-        return pairs.filter {
-            !$0.original.trimmingCharacters(in: .whitespaces).isEmpty
-        }
+        // 原文が空白のみのペアを除外（Gemini が稀に空エントリを含めることがある）
+        return pairs.filter { !$0.original.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 }
