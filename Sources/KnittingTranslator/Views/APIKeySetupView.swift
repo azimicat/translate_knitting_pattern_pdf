@@ -7,6 +7,7 @@ struct APIKeySetupView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var apiKey: String = ""
     @State private var isEditing: Bool = false
+    @State private var showHelp: Bool = false
 
     private var hasExistingKey: Bool { existingKey != nil }
 
@@ -22,11 +23,17 @@ struct APIKeySetupView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Link("→ AI Studioでキーを取得する（無料）",
-                     destination: URL(string: "https://aistudio.google.com/app/apikey")!)
-                    .font(.callout)
+                HStack(spacing: 12) {
+                    Link("→ AI Studioでキーを取得する（無料）",
+                         destination: URL(string: "https://aistudio.google.com/app/apikey")!)
+                        .font(.callout)
 
-                Text("無料枠: 15リクエスト/分・1,500リクエスト/日")
+                    Button("取得方法を見る") { showHelp = true }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+
+                Text("無料枠: 15リクエスト/分・500リクエスト/日")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -85,6 +92,9 @@ struct APIKeySetupView: View {
         }
         .padding(28)
         .frame(width: 420)
+        .sheet(isPresented: $showHelp) {
+            APIKeyHelpView()
+        }
     }
 
     // 先頭8文字 + **** + 末尾4文字 で表示
