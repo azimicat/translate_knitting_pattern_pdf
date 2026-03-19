@@ -143,26 +143,28 @@ actor TypstGenerator {
         "#text(font: \(font), fill: \(fill))[\(convertTags(text))]"
     }
 
-    /// <b>/<i> タグを Typst の #strong[]/#emph[] に変換する。
+    /// <b>/<i>/<u>/<h> タグを Typst の #strong[]/#emph[]/#underline[]/#text(weight:"bold")[] に変換する。
     ///
-    /// 状態機械: isBold / isItalic フラグでスタイル状態を保持しながら文字列を1パスで走査する。
-    /// タグを検出するたびに直前のチャンクをフラッシュし、新しいスタイル状態で続きを処理する。
+    /// 状態機械: isBold / isItalic / isUnderline / isHeading フラグでスタイル状態を保持しながら
+    /// 文字列を1パスで走査する。タグを検出するたびに直前のチャンクをフラッシュし、
+    /// 新しいスタイル状態で続きを処理する。
     func convertTags(_ text: String) -> String {
         var result = ""
-        var isBold = false, isItalic = false
+        var isBold = false, isItalic = false, isUnderline = false, isHeading = false
         var scanPos = text.startIndex
         var chunkStart = text.startIndex
 
         /// 現在のスタイル状態で chunkStart..<end をフラッシュする
+        /// ネスト順（内→外）: italic → underline → bold → heading
         func flush(to end: String.Index) {
             guard chunkStart < end else { return }
             let esc = escapeTypst(String(text[chunkStart..<end]))
-            switch (isBold, isItalic) {
-            case (true,  true):  result += "#strong[#emph[\(esc)]]"
-            case (true,  false): result += "#strong[\(esc)]"
-            case (false, true):  result += "#emph[\(esc)]"
-            case (false, false): result += esc
-            }
+            var s = esc
+            if isItalic    { s = "#emph[\(s)]" }
+            if isUnderline { s = "#underline[\(s)]" }
+            if isBold      { s = "#strong[\(s)]" }
+            if isHeading   { s = "#text(size: 10pt, weight: \"bold\")[\(s)]" }
+            result += s
         }
 
         while scanPos < text.endIndex {
@@ -170,16 +172,20 @@ actor TypstGenerator {
 
             let rest = text[scanPos...]
             var tagLen = 0
-            var nb = isBold, ni = isItalic
+            var nb = isBold, ni = isItalic, nu = isUnderline, nh = isHeading
 
             if      rest.hasPrefix("<b>")  { tagLen = 3; nb = true  }
             else if rest.hasPrefix("</b>") { tagLen = 4; nb = false }
             else if rest.hasPrefix("<i>")  { tagLen = 3; ni = true  }
             else if rest.hasPrefix("</i>") { tagLen = 4; ni = false }
+            else if rest.hasPrefix("<u>")  { tagLen = 3; nu = true  }
+            else if rest.hasPrefix("</u>") { tagLen = 4; nu = false }
+            else if rest.hasPrefix("<h>")  { tagLen = 3; nh = true  }
+            else if rest.hasPrefix("</h>") { tagLen = 4; nh = false }
             else { scanPos = text.index(after: scanPos); continue }
 
             flush(to: scanPos)
-            isBold = nb; isItalic = ni
+            isBold = nb; isItalic = ni; isUnderline = nu; isHeading = nh
             scanPos    = text.index(scanPos, offsetBy: tagLen)
             chunkStart = scanPos
         }

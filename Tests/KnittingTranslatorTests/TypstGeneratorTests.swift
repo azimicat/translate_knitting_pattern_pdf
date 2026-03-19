@@ -84,4 +84,25 @@ final class TypstGeneratorTests: XCTestCase {
         let result = await gen.convertTags("Use <b>MC</b> and <i>CC</i> yarn.")
         XCTAssertEqual(result, "Use #strong[MC] and #emph[CC] yarn.")
     }
+
+    func testConvertTags_underline() async {
+        let result = await gen.convertTags("<u>下線</u>")
+        XCTAssertEqual(result, "#underline[下線]")
+    }
+
+    func testConvertTags_heading() async {
+        let result = await gen.convertTags("<h>Materials</h>")
+        XCTAssertEqual(result, "#text(size: 10pt, weight: \"bold\")[Materials]")
+    }
+
+    func testConvertTags_boldUnderline() async {
+        let result = await gen.convertTags("<b><u>太字下線</u></b>")
+        XCTAssertEqual(result, "#strong[#underline[太字下線]]")
+    }
+
+    func testConvertTags_unknownTagPassthrough() async {
+        // 未知のタグはそのままエスケープされて残る（リテラル `<x>未知</x>` → エスケープ済み）
+        let result = await gen.convertTags("<x>未知</x>")
+        XCTAssertEqual(result, "\\<x\\>未知\\</x\\>")
+    }
 }
