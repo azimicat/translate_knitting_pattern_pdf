@@ -9,7 +9,7 @@ enum TypstError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .typstNotFound:
-            return "typst が見つかりません。ターミナルで brew install typst を実行してください。"
+            return "アプリに同梱された typst バイナリが見つかりません。アプリを再インストールしてください。"
         case .compilationFailed(let msg):
             return "Typst コンパイルエラー: \(msg)"
         }
@@ -40,8 +40,37 @@ actor TypstGenerator {
 
     // MARK: - Private: Process
 
-    /// Homebrew でインストールされた typst バイナリのパスを返す。Apple Silicon / Intel 両対応。
-    private func findTypst() throws -> String {
+    /// バンドル内の typst バイナリを一時ディレクトリにコピーして実行可能パスを返す。
+    /// バンドルに見つからない場合は Homebrew パスにフォールバックする（開発時用）。
+    func findTypst() throws -> String {
+        // バンドル内バイナリを優先
+        if let bundleURL = Bundle.module.url(forResource: "typst", withExtension: nil) {
+            let cachedPath = "/tmp/KnittingTranslator-typst/typst"
+            let fm = FileManager.default
+
+            var needsCopy = true
+            if fm.isExecutableFile(atPath: cachedPath) {
+                // 更新日時を比較して不要なコピーをスキップ
+                let bundleMod = (try? fm.attributesOfItem(atPath: bundleURL.path)[.modificationDate]) as? Date
+                let cacheMod  = (try? fm.attributesOfItem(atPath: cachedPath)[.modificationDate]) as? Date
+                if let b = bundleMod, let c = cacheMod, c >= b {
+                    needsCopy = false
+                }
+            }
+
+            if needsCopy {
+                let cacheDir = URL(fileURLWithPath: "/tmp/KnittingTranslator-typst")
+                try? fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+                let destURL = cacheDir.appendingPathComponent("typst")
+                try? fm.removeItem(at: destURL)
+                try fm.copyItem(at: bundleURL, to: destURL)
+                try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cachedPath)
+            }
+
+            return cachedPath
+        }
+
+        // フォールバック: Homebrew（開発環境用）
         let candidates = [
             "/opt/homebrew/bin/typst",  // Apple Silicon
             "/usr/local/bin/typst",     // Intel
