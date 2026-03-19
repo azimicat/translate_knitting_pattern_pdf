@@ -47,24 +47,7 @@ brew install typst
 
 > 無料枠：15 RPM / 1,500 リクエスト/日 / 1,000,000 TPM（2025 年時点）
 
-### 3. `.env` ファイルを作成する
-
-プロジェクトのルートディレクトリに `.env` ファイルを作成し、取得したキーを記入します。
-
-```sh
-# プロジェクトルートで実行
-cp .env.example .env
-```
-
-`.env` を編集：
-
-```
-GOOGLE_AI_API_KEY=AIzaSy...（取得したキーを貼り付け）
-```
-
-> `.env` は `.gitignore` に含まれており、リポジトリには含まれません。
-
-### 4. ビルドして起動する
+### 3. ビルドして起動する
 
 **Swift Package Manager（ターミナル）の場合：**
 
@@ -84,17 +67,36 @@ swift run
 
 ---
 
+## .app バンドルを作成する
+
+スタンドアロンの `.app` ファイルとして配置したい場合は `make_app.sh` を使います。
+
+```sh
+# プロジェクトフォルダ内に KnittingTranslator.app を作成
+bash make_app.sh
+
+# デスクトップに直接配置する場合
+bash make_app.sh --desktop
+```
+
+初回実行時はアイコン（`AppIcon.icns`）を自動生成します。2 回目以降はスキップされます。アイコンをリセットしたい場合は `rm AppIcon.icns` してから再実行してください。
+
+---
+
 ## 使い方
 
 1. アプリを起動する
-2. **翻訳モード** を選択（棒針 / かぎ針）
-3. 英語の編みパターン PDF をドロップゾーンにドラッグ、または「ファイルを選択」で指定
-4. **「翻訳を開始」** をクリック
-5. 進捗バーがページ単位で進む（0% → 90%: Gemini 翻訳 / 90% → 100%: PDF 生成）
-6. 完了後、プレビューで確認
-7. **「PDF を保存...」** で保存先を指定して出力
+2. **初回のみ**: APIキー入力シートが表示されるので、取得したキーを貼り付けて「保存」
+3. **翻訳モード** を選択（棒針 / かぎ針）
+4. 英語の編みパターン PDF をドロップゾーンにドラッグ、または「ファイルを選択」で指定
+5. **「翻訳を開始」** をクリック
+6. 進捗バーがページ単位で進む（0% → 90%: Gemini 翻訳 / 90% → 100%: PDF 生成）
+7. 完了後、プレビューで確認
+8. **「PDF を保存...」** で保存先を指定して出力
 
 翻訳中に **「キャンセル」** をクリックすると処理を中断できます。
+
+APIキーを変更したい場合は右下の **🔑 ボタン** から変更できます。
 
 ---
 
@@ -134,20 +136,21 @@ swift run
 ```
 translate_knitting_pattern_pdf/
 ├── Package.swift
-├── .env.example                           ← API キー設定のテンプレート
-├── .env                                   ← 実際の API キー（要作成、git 管理外）
+├── make_app.sh                            ← .app バンドル作成スクリプト
+├── generate_icon.swift                    ← アプリアイコン生成スクリプト
 ├── KnittingTranslator.entitlements        ← ネットワーク・ファイルアクセス権限（Sandbox 無効）
 └── Sources/KnittingTranslator/
     ├── KnittingTranslatorApp.swift        ← @main App エントリポイント
     ├── Views/
     │   ├── ContentView.swift              ← メイン UI・保存ダイアログ
+    │   ├── APIKeySetupView.swift          ← APIキー入力シート（初回 & 変更）
     │   ├── DropZoneView.swift             ← PDF ドロップ＆ファイル選択
     │   └── PDFPreviewView.swift           ← 生成 PDF のインライン表示
     ├── Models/
     │   ├── TranslationMode.swift          ← 棒針 / かぎ針 enum
     │   └── AppState.swift                 ← @Observable 状態管理・パイプライン制御
     └── Services/
-        ├── EnvLoader.swift                ← .env パーサー
+        ├── APIKeyService.swift            ← APIキーの保存・読み込み（UserDefaults）
         ├── GeminiService.swift            ← Gemini API クライアント（テキスト抽出＋翻訳）
         └── TypstGenerator.swift           ← Typst CLI を使ったバイリンガル PDF 生成
 ```
@@ -166,6 +169,7 @@ PDF ファイル（英語）
   ├─ [0% → 90%] GeminiService
   │    ページごとに PDF → base64 エンコード → Gemini 2.5 Flash API
   │    テキスト抽出 + 英→日翻訳 + グループ化 + フォントスタイル検出を 1 プロンプトで実行
+  │    認証: ?key=<api_key>
   │    レスポンス: [{"original": "...", "translation": "..."}]
   │
   └─ [90% → 100%] TypstGenerator
@@ -182,6 +186,7 @@ PDF ファイル（英語）
 |------|-----|
 | モデル | `gemini-2.5-flash` |
 | エンドポイント | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` |
+| 認証方式 | API キー（`?key=` クエリパラメータ） |
 | タイムアウト（リクエスト） | 300 秒 |
 | タイムアウト（リソース） | 1800 秒 |
 | PDF 送信形式 | `inline_data` / `application/pdf` / base64 |

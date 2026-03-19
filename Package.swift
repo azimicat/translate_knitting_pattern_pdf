@@ -8,11 +8,13 @@ let package = Package(
         .executableTarget(
             name: "KnittingTranslator",
             path: "Sources/KnittingTranslator",
-            resources: [.process("Resources")],
-            swiftSettings: [
-                // Required for @main to work in SPM executable targets
-                .unsafeFlags(["-parse-as-library"])
-            ]
-        )
+            // -parse-as-library は SPM executable target で @main を使うために必要
+            swiftSettings: [.unsafeFlags(["-parse-as-library"])]
+        ),
+        .testTarget(
+            name: "KnittingTranslatorTests",
+            dependencies: ["KnittingTranslator"],
+            path: "Tests/KnittingTranslatorTests"
+        ),
     ]
 )
