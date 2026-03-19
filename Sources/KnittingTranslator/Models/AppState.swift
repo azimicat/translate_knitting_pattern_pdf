@@ -21,9 +21,13 @@ final class AppState {
     /// true のとき APIKeySetupView シートを表示する
     var showAPIKeySetup: Bool = false
 
+    var pageCount: Int = 0
+    var showFreeierWarningAlert: Bool = false
+
     // MARK: - Services
 
     let apiKeyService = APIKeyService()
+    let usageTracker = APIUsageTracker()
     private let geminiService = GeminiService()
     private var translationTask: Task<Void, Never>?
 
@@ -44,12 +48,22 @@ final class AppState {
 
     // MARK: - Translation
 
-    func processTranslation() async {
+    func processTranslation(skipWarningCheck: Bool = false) async {
         guard let url = droppedURL else { return }
         guard let apiKey = apiKeyService.apiKey() else {
             showAPIKeySetup = true
             return
         }
+
+        if !skipWarningCheck {
+            let count = readPageCount(from: url)
+            pageCount = count
+            if usageTracker.wouldTriggerWarning(adding: count) {
+                showFreeierWarningAlert = true
+                return
+            }
+        }
+
         let mode = self.mode
 
         isProcessing = true
@@ -86,6 +100,7 @@ final class AppState {
                 try await TypstGenerator().generate(pairs: pairs, to: tempURL)
 
                 generatedDocument = PDFDocument(url: tempURL)
+                usageTracker.recordUsage(pageCount)
                 progress      = 1.0
                 progressLabel = "完了"
 
@@ -96,6 +111,17 @@ final class AppState {
             }
             isProcessing = false
         }
+    }
+
+    func readPageCount(from url: URL) -> Int {
+        guard url.startAccessingSecurityScopedResource() else { return 0 }
+        defer { url.stopAccessingSecurityScopedResource() }
+        return PDFDocument(url: url)?.pageCount ?? 0
+    }
+
+    func confirmAndStartTranslation() async {
+        showFreeierWarningAlert = false
+        await processTranslation(skipWarningCheck: true)
     }
 
     func cancelTranslation() {

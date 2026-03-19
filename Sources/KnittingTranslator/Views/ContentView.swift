@@ -83,6 +83,26 @@ struct ContentView: View {
                 appState.saveAPIKey(key)
             }
         }
+        .alert("APIリクエスト数が多くなります", isPresented: Binding(
+            get: { appState.showFreeierWarningAlert },
+            set: { appState.showFreeierWarningAlert = $0 }
+        )) {
+            Button("キャンセル", role: .cancel) {}
+            Button("翻訳を開始") {
+                Task { await appState.confirmAndStartTranslation() }
+            }
+        } message: {
+            let remaining = appState.usageTracker.freeierLimit
+                - appState.usageTracker.usedToday
+                - appState.pageCount
+            Text("""
+            このPDFは\(appState.pageCount)ページあります。
+            \(appState.pageCount)回のAPIリクエストが発生します。
+
+            本日の使用量: \(appState.usageTracker.usedToday) / \(appState.usageTracker.freeierLimit) 回
+            翻訳後の残り: \(max(0, remaining)) 回
+            """)
+        }
     }
 
     @MainActor
