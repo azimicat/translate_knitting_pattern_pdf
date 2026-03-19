@@ -65,6 +65,14 @@ swift run
 
 > **App Sandbox は無効**です（Typst CLI を呼び出すために必要）。ネットワーク通信とファイルアクセスはエンタイトルメントで明示的に許可されています。
 
+**テストを実行する：**
+
+```sh
+swift test
+```
+
+32 件の単体テスト（APIKeyService / GeminiService / TranslationMode / TypstGenerator）が実行されます。
+
 ---
 
 ## .app バンドルを作成する
@@ -96,7 +104,7 @@ bash make_app.sh --desktop
 
 翻訳中に **「キャンセル」** をクリックすると処理を中断できます。
 
-APIキーを変更したい場合は右下の **🔑 ボタン** から変更できます。
+APIキーを変更したい場合は翻訳開始ボタン行の右端にある **🔑 ボタン** から変更できます。
 
 ---
 
@@ -139,20 +147,25 @@ translate_knitting_pattern_pdf/
 ├── make_app.sh                            ← .app バンドル作成スクリプト
 ├── generate_icon.swift                    ← アプリアイコン生成スクリプト
 ├── KnittingTranslator.entitlements        ← ネットワーク・ファイルアクセス権限（Sandbox 無効）
-└── Sources/KnittingTranslator/
-    ├── KnittingTranslatorApp.swift        ← @main App エントリポイント
-    ├── Views/
-    │   ├── ContentView.swift              ← メイン UI・保存ダイアログ
-    │   ├── APIKeySetupView.swift          ← APIキー入力シート（初回 & 変更）
-    │   ├── DropZoneView.swift             ← PDF ドロップ＆ファイル選択
-    │   └── PDFPreviewView.swift           ← 生成 PDF のインライン表示
-    ├── Models/
-    │   ├── TranslationMode.swift          ← 棒針 / かぎ針 enum
-    │   └── AppState.swift                 ← @Observable 状態管理・パイプライン制御
-    └── Services/
-        ├── APIKeyService.swift            ← APIキーの保存・読み込み（UserDefaults）
-        ├── GeminiService.swift            ← Gemini API クライアント（テキスト抽出＋翻訳）
-        └── TypstGenerator.swift           ← Typst CLI を使ったバイリンガル PDF 生成
+├── Sources/KnittingTranslator/
+│   ├── KnittingTranslatorApp.swift        ← @main App エントリポイント
+│   ├── Views/
+│   │   ├── ContentView.swift              ← メイン UI・保存ダイアログ
+│   │   ├── APIKeySetupView.swift          ← APIキー入力シート（初回 & 変更）
+│   │   ├── DropZoneView.swift             ← PDF ドロップ＆ファイル選択
+│   │   └── PDFPreviewView.swift           ← 生成 PDF のインライン表示
+│   ├── Models/
+│   │   ├── TranslationMode.swift          ← 棒針 / かぎ針 enum
+│   │   └── AppState.swift                 ← @Observable 状態管理・パイプライン制御
+│   └── Services/
+│       ├── APIKeyService.swift            ← APIキーの保存・読み込み（UserDefaults）
+│       ├── GeminiService.swift            ← Gemini API クライアント（テキスト抽出＋翻訳）
+│       └── TypstGenerator.swift           ← Typst CLI を使ったバイリンガル PDF 生成
+└── Tests/KnittingTranslatorTests/
+    ├── APIKeyServiceTests.swift           ← UserDefaults 保存・読み込みのテスト
+    ├── GeminiServiceTests.swift           ← レスポンスパーサーのテスト
+    ├── TranslationModeTests.swift         ← enum のテスト
+    └── TypstGeneratorTests.swift          ← エスケープ・マークアップ変換のテスト
 ```
 
 ---
