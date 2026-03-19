@@ -4,3 +4,4 @@
 *.xcuserstate
 DerivedData/
 *.app
+Sources/KnittingTranslator/Resources/typst
