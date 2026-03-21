@@ -88,6 +88,84 @@ final class GeminiServiceTests: XCTestCase {
         XCTAssertEqual(pairs[1].original, "Row 2: P2")
     }
 
+    // MARK: - parseResponse: HTMLマークアップ保持
+
+    func testParseResponse_preservesHTMLMarkup() async throws {
+        // <b>/<i>/<u>/<h> タグがそのまま保持されること
+        let text = """
+        [
+          {"original":"<h>Pattern Notes</h>","translation":"<h>パターンの注意事項</h>"},
+          {"original":"<b>Row 1:</b> K2, P2","translation":"<b>1段目：</b>表2目、裏2目"},
+          {"original":"<i>Note:</i> ssk tightly","translation":"<i>注意：</i>右上2目一度はきつめに"}
+        ]
+        """
+        let data = makeResponse(text: text)
+        let pairs = try await service.parseResponse(data: data)
+        XCTAssertEqual(pairs.count, 3)
+        XCTAssertEqual(pairs[0].original,    "<h>Pattern Notes</h>")
+        XCTAssertEqual(pairs[0].translation, "<h>パターンの注意事項</h>")
+        XCTAssertEqual(pairs[1].original,    "<b>Row 1:</b> K2, P2")
+        XCTAssertEqual(pairs[1].translation, "<b>1段目：</b>表2目、裏2目")
+    }
+
+    // MARK: - parseResponse: 編み物用語の訳語
+
+    func testParseResponse_knittingTerms_k2tog() async throws {
+        // k2tog → 左上2目一度（「K2 目一度」などと訳されないこと）
+        let text = """
+        [{"original":"k2tog","translation":"左上2目一度"}]
+        """
+        let data = makeResponse(text: text)
+        let pairs = try await service.parseResponse(data: data)
+        XCTAssertEqual(pairs[0].translation, "左上2目一度")
+    }
+
+    func testParseResponse_knittingTerms_ssk() async throws {
+        // ssk → 右上2目一度
+        let text = """
+        [{"original":"ssk","translation":"右上2目一度"}]
+        """
+        let data = makeResponse(text: text)
+        let pairs = try await service.parseResponse(data: data)
+        XCTAssertEqual(pairs[0].translation, "右上2目一度")
+    }
+
+    func testParseResponse_knittingTerms_sk2po_vs_s2kpo() async throws {
+        // sk2po（右上3目一度）と s2kpo（中上3目一度）は別操作
+        let text = """
+        [
+          {"original":"sk2po","translation":"右上3目一度"},
+          {"original":"s2kpo","translation":"中上3目一度"}
+        ]
+        """
+        let data = makeResponse(text: text)
+        let pairs = try await service.parseResponse(data: data)
+        XCTAssertEqual(pairs[0].translation, "右上3目一度")
+        XCTAssertEqual(pairs[1].translation, "中上3目一度")
+    }
+
+    func testParseResponse_units_notTranslated() async throws {
+        // mm, cm, g, oz などの単位は翻訳されずそのまま残ること
+        let text = """
+        [
+          {"original":"Gauge: 20 sts = 10 cm","translation":"ゲージ：20目 = 10 cm"},
+          {"original":"Needle: 3.5 mm","translation":"針：3.5 mm"},
+          {"original":"Yarn: 100 g / 200 yd","translation":"糸：100 g / 200 yd"}
+        ]
+        """
+        let data = makeResponse(text: text)
+        let pairs = try await service.parseResponse(data: data)
+        XCTAssertEqual(pairs.count, 3)
+        // 単位がそのまま含まれていること
+        XCTAssertTrue(pairs[0].translation.contains("cm"))
+        XCTAssertTrue(pairs[1].translation.contains("mm"))
+        XCTAssertTrue(pairs[2].translation.contains("g"))
+        XCTAssertTrue(pairs[2].translation.contains("yd"))
+        // 日本語化された単位が含まれないこと
+        XCTAssertFalse(pairs[1].translation.contains("ミリメートル"))
+        XCTAssertFalse(pairs[2].translation.contains("グラム"))
+    }
+
     // MARK: - Helpers
 
     /// Gemini API レスポンス形式の JSON を Data として組み立てる
