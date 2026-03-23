@@ -21,7 +21,7 @@ echo "==> 出力先: $OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
 echo "==> .app バンドルを生成"
-bash "$PROJECT_ROOT/make_app.sh"
+bash "$SCRIPT_DIR/make_app.sh"
 
 echo "==> .app を出力先に移動"
 rm -rf "$APP_PATH"
