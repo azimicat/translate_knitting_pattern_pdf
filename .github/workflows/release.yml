@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [Test]
+    branches: [main]
+    types: [completed]
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: macos-15
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Swift バージョンを確認
+        run: swift --version
+
+      - name: typst バイナリをダウンロード
+        run: bash scripts/download_typst.sh
+
+      - name: リリース用バイナリを生成
+        run: |
+          bash scripts/build-release.sh ./build
+
+      - name: バージョン番号を取得
+        id: version
+        run: |
+          VERSION=$(cat VERSION)
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "tag=v${VERSION}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "name=v${VERSION} (${SHORT_SHA})" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub Release を作成して zip をアップロード
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            ./build/KnittingTranslator.zip \
+            --title "${{ steps.version.outputs.name }}" \
+            --notes "コミット: ${GITHUB_SHA}" \
+            --target "${GITHUB_SHA}"

@@ -1,0 +1,44 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "Tests/**"
+      - "Package.swift"
+      - "scripts/**"
+      - ".github/workflows/test.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "Tests/**"
+      - "Package.swift"
+      - "scripts/**"
+      - ".github/workflows/test.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-test:
+    name: Unit Test
+    runs-on: macos-15
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Swift バージョンを確認
+        run: swift --version
+
+      - name: typst バイナリをダウンロード
+        run: bash scripts/download_typst.sh
+
+      - name: ビルドを確認
+        run: bash scripts/build-app.sh
+
+      - name: ユニットテストを実行
+        run: bash scripts/test-unit.sh
