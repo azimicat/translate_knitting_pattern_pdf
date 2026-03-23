@@ -44,7 +44,17 @@ actor TypstGenerator {
     /// バンドルに見つからない場合は Homebrew パスにフォールバックする（開発時用）。
     func findTypst() throws -> String {
         // バンドル内バイナリを優先
-        if let bundleURL = Bundle.module.url(forResource: "typst", withExtension: nil) {
+        //
+        // 検索順:
+        // 1. Contents/Resources/Bundle.bundle — 配布版 .app の標準位置（codesign 対応）
+        // 2. Bundle.module — テスト・開発時: SPM が生成したハードコード dev パスへのフォールバック
+        //    ※ app として実行される場合は (1) で必ず見つかるため (2) に到達せず
+        //      fatalError のリスクはない
+        let spmBundleName = "KnittingTranslator_KnittingTranslator.bundle"
+        let typstFromResources = Bundle.main.resourceURL
+            .flatMap { Bundle(url: $0.appendingPathComponent(spmBundleName)) }?
+            .url(forResource: "typst", withExtension: nil)
+        if let bundleURL = typstFromResources ?? Bundle.module.url(forResource: "typst", withExtension: nil) {
             let cachedPath = "/tmp/KnittingTranslator-typst/typst"
             let fm = FileManager.default
 
