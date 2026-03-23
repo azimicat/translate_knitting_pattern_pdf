@@ -77,14 +77,14 @@ swift test
 
 ## .app バンドルを作成する
 
-スタンドアロンの `.app` ファイルとして配置したい場合は `make_app.sh` を使います。
+スタンドアロンの `.app` ファイルとして配置したい場合は `scripts/make_app.sh` を使います。
 
 ```sh
 # プロジェクトフォルダ内に KnittingTranslator.app を作成
-bash make_app.sh
+bash scripts/make_app.sh
 
 # デスクトップに直接配置する場合
-bash make_app.sh --desktop
+bash scripts/make_app.sh --desktop
 ```
 
 初回実行時はアイコン（`AppIcon.icns`）を自動生成します。2 回目以降はスキップされます。アイコンをリセットしたい場合は `rm AppIcon.icns` してから再実行してください。
@@ -144,7 +144,7 @@ APIキーを変更したい場合は翻訳開始ボタン行の右端にある *
 ```
 translate_knitting_pattern_pdf/
 ├── Package.swift
-├── make_app.sh                            ← .app バンドル作成スクリプト
+├── scripts/make_app.sh                    ← .app バンドル作成スクリプト
 ├── generate_icon.swift                    ← アプリアイコン生成スクリプト
 ├── KnittingTranslator.entitlements        ← ネットワーク・ファイルアクセス権限（Sandbox 無効）
 ├── Sources/KnittingTranslator/

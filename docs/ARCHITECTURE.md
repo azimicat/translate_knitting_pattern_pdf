@@ -17,7 +17,6 @@ macOS 向け編み物パターン PDF 翻訳アプリ。英語の棒針・かぎ
 translate_knitting_pattern_pdf/
 ├── Package.swift                        # SPM 設定（依存なし）
 ├── VERSION                              # バージョン番号（CI リリースで参照）
-├── make_app.sh                          # .app バンドル生成スクリプト
 ├── generate_icon.swift                  # AppIcon 生成ユーティリティ
 ├── KnittingTranslator.entitlements      # サンドボックス無効・ネットワーク許可
 │
@@ -149,10 +148,10 @@ enum TranslationMode: String, CaseIterable {
 | スクリプト | 用途 |
 |---|---|
 | `build-app.sh` | `swift build` を実行してビルドが通るか確認 |
-| `build-release.sh` | `make_app.sh` を呼び出し、.app を zip 化してリリース成果物を生成 |
+| `build-release.sh` | `scripts/make_app.sh` を呼び出し、.app を zip 化してリリース成果物を生成 |
 | `test-unit.sh` | `swift test` を実行してユニットテストを確認 |
 | `download_typst.sh` | Typst v0.14.2 の universal バイナリをダウンロードして `Resources/typst` に配置 |
-| `make_app.sh` | release ビルド → .app バンドル構築 → ad-hoc 署名 |
+| `make_app.sh` | release ビルド → .app バンドル構築 → ad-hoc 署名（`scripts/` 内） |
 | `generate_icon.swift` | AppIcon.icns を生成するユーティリティ |
 
 ---

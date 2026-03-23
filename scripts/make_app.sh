@@ -2,7 +2,7 @@
 # KnittingTranslator.app バンドルを作成するスクリプト
 set -e
 
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="KnittingTranslator"
 ARCH=$(uname -m)
 BUILD_DIR="$PROJECT_DIR/.build/${ARCH}-apple-macosx/release"
