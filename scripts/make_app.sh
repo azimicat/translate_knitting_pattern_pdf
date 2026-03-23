@@ -56,7 +56,7 @@ echo "  実行ファイル: コピー済み"
 # SPM リソースバンドルをコピー (needle_dictionary.json 等)
 RESOURCE_BUNDLE="$BUILD_DIR/${APP_NAME}_${APP_NAME}.bundle"
 if [ -d "$RESOURCE_BUNDLE" ]; then
-    cp -r "$RESOURCE_BUNDLE" "$APP_BUNDLE/"
+    cp -r "$RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
     echo "  リソースバンドル: コピー済み"
 else
     echo "  警告: リソースバンドルが見つかりません ($RESOURCE_BUNDLE)"
