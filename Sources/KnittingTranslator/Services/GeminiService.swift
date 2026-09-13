@@ -18,6 +18,7 @@ enum GeminiError: LocalizedError, Equatable {
     case pdfLoadFailed
     case apiError(statusCode: Int, body: String)
     case emptyResponse
+    case writingSkillLoadFailed
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ enum GeminiError: LocalizedError, Equatable {
             return "PDFの読み込みに失敗しました"
         case .apiError(let code, let body):
             return "Gemini API エラー (HTTP \(code)): \(body)"
+        case .writingSkillLoadFailed:
+            return "翻訳用の文章規範を読み込めません。アプリを再インストールしてください。"
         case .emptyResponse:
             return "Gemini API からの応答が空です"
         }
@@ -106,7 +109,7 @@ actor GeminiService {
         apiKey: String
     ) async throws -> [TranslationPair] {
 
-        let body = buildRequestBody(
+        let body = try buildRequestBody(
             base64PDF: pageData.base64EncodedString(),
             mode: mode,
             pageNumber: pageNumber,
@@ -140,14 +143,18 @@ actor GeminiService {
     /// プロンプトはテキスト種別（パターン指示 vs 説明文）で段落化ルールを変え、
     /// <b>/<i> タグでフォントスタイルを保持し、ヘッダー/フッター・空行を除外するよう指示する。
     /// thinking モードは翻訳タスクでは不要かつ大幅な遅延原因になるため無効化する。
-    private func buildRequestBody(
+    func buildRequestBody(
         base64PDF: String,
         mode: TranslationMode,
         pageNumber: Int,
         totalPages: Int
-    ) -> [String: Any] {
+    ) throws -> [String: Any] {
         let modeDesc = mode == .knitting ? "棒針編み（knitting）" : "かぎ針編み（crochet）"
+        let writingGuidance = try TranslationWritingSkills.instructions()
         let prompt = """
+        \(writingGuidance)
+
+        【翻訳タスク】
         このPDFは\(modeDesc)パターンの \(pageNumber)/\(totalPages) ページです。
         本文テキストを英語から日本語へ翻訳してください。
 

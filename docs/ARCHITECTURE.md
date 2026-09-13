@@ -166,3 +166,9 @@ Typst CLI を subprocess として起動するため、App Sandbox を無効に�
 
 ### バージョン管理
 `VERSION` ファイルにセマンティックバージョン（例: `1.0.0`）を記載。`release.yml` がここを参照してタグを生成する。
+
+## 翻訳時の文章規範
+
+指定のcognitive-rhythm-writingと、参照先のjapanese-tech-writingを翻訳時に自動適用します。説明文の日本語を整える際も、原文の意味・数値・条件・編む順序を優先し、創作や省略はしないよう指示します。既存のGoogle AI APIキーをそのまま使えます。操作の追加はありません。
+
+`TranslationWritingSkills` がバンドル内の2つのMarkdownを読み込み、翻訳用の適用条件で囲んで `GeminiService.buildRequestBody` に渡します。読み込み失敗はAPI送信前にエラーとします。スキルを読むための追加通信・追加翻訳リクエストはありません。入力トークン数は増えます。[出典・更新手順](TRANSLATION_SKILLS.md)を参照してください。

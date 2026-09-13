@@ -108,3 +108,7 @@ Google AI の無料枠は **1 日あたり 500 リクエスト**（1 ページ =
 - API キーは Mac 内の UserDefaults にのみ保存されます
 - PDF の内容は翻訳のため Google Gemini API に送信されます
 - アプリ自体はデータを収集・送信しません
+
+## 翻訳時の文章規範
+
+指定のcognitive-rhythm-writingと、参照先のjapanese-tech-writingを翻訳時に自動適用します。説明文の日本語を整える際も、原文の意味・数値・条件・編む順序を優先し、創作や省略はしないよう指示します。既存のGoogle AI APIキーをそのまま使えます。操作の追加はありません。
