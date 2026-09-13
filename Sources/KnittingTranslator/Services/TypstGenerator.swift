@@ -183,6 +183,7 @@ actor TypstGenerator {
     }
 
     /// <b>/<i>/<u>/<h> タグを Typst の #strong[]/#emph[]/#underline[]/#text(weight:"bold")[] に変換する。
+    /// <br> / <br/> / <br /> は強制改行に変換する。
     ///
     /// 状態機械: isBold / isItalic / isUnderline / isHeading フラグでスタイル状態を保持しながら
     /// 文字列を1パスで走査する。タグを検出するたびに直前のチャンクをフラッシュし、
@@ -210,6 +211,14 @@ actor TypstGenerator {
             guard text[scanPos] == "<" else { scanPos = text.index(after: scanPos); continue }
 
             let rest = text[scanPos...]
+            let breakPrefix = rest.prefix(6).lowercased()
+            if let breakTag = ["<br>", "<br/>", "<br />"].first(where: { breakPrefix.hasPrefix($0) }) {
+                flush(to: scanPos)
+                result += "#linebreak()"
+                scanPos = text.index(scanPos, offsetBy: breakTag.count)
+                chunkStart = scanPos
+                continue
+            }
             var tagLen = 0
             var nb = isBold, ni = isItalic, nu = isUnderline, nh = isHeading
 
@@ -238,6 +247,8 @@ actor TypstGenerator {
     func escapeTypst(_ text: String) -> String {
         var s = text
         s = s.replacingOccurrences(of: "\\", with: "\\\\")  // 最初に処理（順序重要）
+        s = s.replacingOccurrences(of: "[",  with: "\\[")
+        s = s.replacingOccurrences(of: "]",  with: "\\]")
         s = s.replacingOccurrences(of: "*",  with: "\\*")
         s = s.replacingOccurrences(of: "_",  with: "\\_")
         s = s.replacingOccurrences(of: "#",  with: "\\#")

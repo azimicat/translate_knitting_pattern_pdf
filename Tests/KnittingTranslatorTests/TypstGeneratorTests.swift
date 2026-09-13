@@ -43,6 +43,20 @@ final class TypstGeneratorTests: XCTestCase {
 
     // MARK: - convertTags
 
+    func testGenerate_bracketsAcrossPairsAndStyles() async throws {
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("brackets-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: output) }
+        let pairs = [
+            TranslationPair(original: "Repeat [K2,", translation: "繰り返し [表2目、"),
+            TranslationPair(original: "P2] twice", translation: "裏2目] を2回"),
+            TranslationPair(original: "<b>[K2</b>, P2]", translation: "<i>[表2目</i>、裏2目]"),
+        ]
+        try await gen.generate(pairs: pairs, to: output)
+        let data = try Data(contentsOf: output)
+        XCTAssertTrue(data.starts(with: Data("%PDF-".utf8)))
+    }
+
     func testConvertTags_plainText() async {
         let result = await gen.convertTags("Cast on 20 sts.")
         XCTAssertEqual(result, "Cast on 20 sts.")
